@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "composable-admin",
+    "require-admin"
+]
