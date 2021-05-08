@@ -1,9 +1,7 @@
-pub use require_admin::require_multi_admin as require_admin;
-
 use cosmwasm_std::{
-    HumanAddr, CanonicalAddr, StdResult, Extern, ReadonlyStorage, Env,
-    Api, Querier, Storage, from_slice, to_vec, StdError, HandleResponse,
-    Binary, to_binary
+    HumanAddr, CanonicalAddr, StdResult, Extern, Env,
+    Api, Querier, Storage, to_vec, StdError, HandleResponse,
+    Binary, to_binary, from_slice, ReadonlyStorage
 };
 use schemars::JsonSchema;
 use serde::{Serialize, Deserialize};
@@ -107,7 +105,9 @@ pub fn save_admins<S: Storage, A: Api, Q: Querier>(
 pub fn load_admins<S: Storage, A: Api, Q: Querier>(
     deps: &Extern<S, A, Q>
 ) -> StdResult<Vec<HumanAddr>> {
-    let admins: Vec<CanonicalAddr> = load(&deps.storage, ADMINS_KEY)?;
+    let admins: Vec<CanonicalAddr> =
+        load(&deps.storage, ADMINS_KEY).unwrap_or(vec![]);
+    
     let mut result = Vec::with_capacity(admins.len());
 
     for admin in admins {
@@ -138,6 +138,106 @@ fn load<T: DeserializeOwned, S: ReadonlyStorage>(storage: &S, key: &[u8]) -> Std
             backtrace: None
         }
     )?;
-
+    
     from_slice(&result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::from_binary;
+    use cosmwasm_std::testing::{mock_dependencies, mock_env};
+
+    #[test]
+    fn test_handle() {
+        const ADMIN: &str = "goshu";
+
+        fn run_msg<S: Storage, A: Api, Q: Querier>(
+            deps: &mut Extern<S, A, Q>,
+            addresses: Vec<HumanAddr>,
+            assert_len: usize
+        ) {
+            let msg = MultiAdminHandleMsg::AddAdmins {
+                addresses
+            };
+    
+            let result = multi_admin_handle(
+                deps,
+                mock_env(HumanAddr::from(ADMIN), &[]),
+                msg,
+                DefaultHandleImpl
+            );
+    
+            assert!(result.is_ok());
+    
+            let admins = load_admins(deps).unwrap();
+            assert!(
+                admins.len() == assert_len,
+                "Assert admins.len() failed: Expected: {}, Got: {}", admins.len(), assert_len
+            );
+        }
+
+        let ref mut deps = mock_dependencies(10, &[]);
+
+        let admin = HumanAddr::from("goshu");
+        save_admins(deps, &vec![ admin.clone() ]).unwrap();
+
+        let msg = MultiAdminHandleMsg::AddAdmins {
+            addresses: vec![ HumanAddr::from("will fail") ]
+        };
+
+        let result = multi_admin_handle(
+            deps,
+            mock_env(HumanAddr::from("unauthorized"), &[]),
+            msg,
+            DefaultHandleImpl
+        )
+        .unwrap_err();
+
+        match result {
+            StdError::Unauthorized { .. } => { },
+            _ => panic!("Expected \"StdError::Unauthorized\"")
+        };
+
+        run_msg(deps, vec![], 1);
+
+        run_msg(
+            deps,
+            vec![
+                HumanAddr::from("archer"),
+                HumanAddr::from("lana")
+            ],
+            3
+        );
+
+        run_msg(
+            deps,
+            vec![
+                HumanAddr::from("pam"),
+            ],
+            4
+        );
+    }
+
+    #[test]
+    fn test_query() {
+        let ref mut deps = mock_dependencies(10, &[]);
+
+        let result = multi_admin_query(deps, MultiAdminQueryMsg::Admins, DefaultQueryImpl).unwrap();
+
+        let response: MultiAdminQueryResponse = from_binary(&result).unwrap();
+        assert!(response.addresses.len() == 0);
+
+        let admins = vec![
+            HumanAddr::from("archer"),
+            HumanAddr::from("lana")
+        ];
+
+        save_admins(deps, &admins).unwrap();
+
+        let result = multi_admin_query(deps, MultiAdminQueryMsg::Admins, DefaultQueryImpl).unwrap();
+
+        let response: MultiAdminQueryResponse = from_binary(&result).unwrap();
+        assert!(response.addresses == admins);
+    }
 }

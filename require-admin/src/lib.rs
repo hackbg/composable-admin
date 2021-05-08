@@ -4,15 +4,8 @@ use syn::punctuated::Punctuated;
 use syn::token::Comma;
 use quote::quote;
 
-/*
 #[proc_macro_attribute]
 pub fn require_admin(_attr: TokenStream, func: TokenStream) -> TokenStream {
-    unimplemented!()
-}
-*/
-
-#[proc_macro_attribute]
-pub fn require_multi_admin(_attr: TokenStream, func: TokenStream) -> TokenStream {
     let mut ast = parse_macro_input!(func as ItemFn);
 
     let (deps, env) = find_extern_arg(&ast.sig.inputs);
